@@ -49,7 +49,7 @@ services:
       - "9092:9092"
 
   debezium:
-    image: keycloak_debezium:latest
+    image: ssm_debezium:latest
     build:
       context: .
       dockerfile: Dockerfile
