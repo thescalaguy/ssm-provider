@@ -1,0 +1,74 @@
+services:
+  postgres:
+    hostname: db
+    image: postgres:latest
+    environment:
+      - POSTGRES_PASSWORD=my-secret-pw
+    ports:
+      - "5432:5432"
+
+  zookeeper:
+    image: zookeeper:3.5.6
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    healthcheck:
+      interval: 5s
+      retries: 3
+      start_period: 30s
+      test: echo srvr | nc zookeeper 2181
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    hostname: kafka
+    image: debezium/kafka:latest
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      - KAFKA_BROKER_ID=1
+      - ZOOKEEPER_CONNECT=zookeeper:2181
+      #      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      #      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_HEAP_OPTS=-Xms256m -Xmx256m
+      - KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false
+      - KAFKA_MESSAGE_MAX_BYTES=5242880
+      - KAFKA_MAX_MESSAGE_BYTES=5242880
+      - CREATE_TOPICS=kafka_connect_config:1:1:compact,kafka_connect_offsets:1:1:compact,kafka_connect_status:1:1:compact
+    healthcheck:
+      interval: 1s
+      retries: 5
+      start_period: 60s
+      test: nc -z kafka 9092
+      timeout: 5s
+    ports:
+      - "9092:9092"
+
+  debezium:
+    image: keycloak_debezium:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=...
+      - AWS_SECRET_ACCESS_KEY=...
+      - CONNECT_CONFIG_PROVIDERS=ssm,file
+      - CONNECT_CONFIG_PROVIDERS_SSM_CLASS=com.providers.aws.SSMProvider
+      - CONNECT_CONFIG_PROVIDERS_FILE_CLASS=org.apache.kafka.common.config.provider.FileConfigProvider
+      - BOOTSTRAP_SERVERS=kafka:9092
+      - CONFIG_STORAGE_TOPIC=kafka_connect_config
+      - OFFSET_STORAGE_TOPIC=kafka_connect_offsets
+      - STATUS_STORAGE_TOPIC=kafka_connect_status
+      - GROUP_ID=kafka_connect
+      - KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+    ports:
+      - "8083:8083"
+    depends_on:
+      - postgres
+      - kafka
